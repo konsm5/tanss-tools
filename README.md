@@ -22,7 +22,8 @@ Features:
 
 - Fixed right-hand sidebar with all checklists of the current ticket
 - Drag-resizable (width persisted in `localStorage`)
-- Auto-collapses on tickets without checklists, auto-expands when they appear (manual toggle overrides until the next ticket)
+- Auto-collapses on tickets without checklists or once all checklists are fully worked off, auto-expands when open checklists appear (manual toggle overrides until the next ticket)
+- Quick-edit popups opened from a checklist (text editor, date/option pickers) are raised above the sidebar with a dimmed backdrop, so they stay usable while the sidebar is on top
 - Only activates on the ticket view (`section=bug&sub=view&bugID=...`)
 
 Install: [tanss-checklist-rightside.user.js](./tampermonkey/tanss-checklist-rightside.user.js)

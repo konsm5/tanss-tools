@@ -7,7 +7,7 @@
 // ==UserScript==
 // @name         tanss-checklist-rightside
 // @namespace    https://github.com/compositiv/tanss-tools
-// @version      2026-05-13.12-00
+// @version      2026-09-11.12-00
 // @updateURL    https://raw.githubusercontent.com/compositiv/tanss-tools/main/tampermonkey/tanss-checklist-rightside.user.js
 // @downloadURL  https://raw.githubusercontent.com/compositiv/tanss-tools/main/tampermonkey/tanss-checklist-rightside.user.js
 // @homepageURL  https://github.com/compositiv/tanss-tools
@@ -25,8 +25,19 @@
   const TOGGLE_BTN_ID = "tcr-toggle";
   const RESIZER_ID = "tcr-resizer";
   const EMPTY_MSG_ID = "tcr-empty";
+  const BACKDROP_ID = "tcr-popup-backdrop";
+
   const CHECKLIST_SELECTOR = ".tns-checklist-container";
+  const OPEN_CHECKLIST_SELECTOR =
+    ".tns-checklist-container:not(.checklist-completed)";
+
+  const POPUP_SELECTORS = [
+    ".tns-ticket-texts-editor.lt-hover-container",
+    ".tns-picker-quick-edit.lt-hover-container"
+  ];
+
   const LS_WIDTH = "tcr.width";
+
   const MIN_WIDTH = 280;
   const MAX_WIDTH = 1200;
   const DEFAULT_WIDTH = 420;
@@ -36,33 +47,43 @@
     body.tcr-active {
       --tcr-width: ${DEFAULT_WIDTH}px;
     }
+
     body.tcr-active #v4_overallContainer {
       padding-right: var(--tcr-width);
       box-sizing: border-box;
       transition: padding-right 0.12s ease;
     }
+
     body.tcr-active.tcr-collapsed #v4_overallContainer {
       padding-right: ${COLLAPSED_WIDTH}px;
     }
 
+    /* Sidebar */
     #${SIDEBAR_ID} {
       position: fixed;
       top: 0;
       right: 0;
       bottom: 0;
       width: var(--tcr-width, ${DEFAULT_WIDTH}px);
-      background: var(--tns-color-white, #fff);
-      border-left: 1px solid var(--tns-color-grey-1, #ccc);
-      z-index: 9000;
       display: none;
       flex-direction: column;
+      background: var(--tns-color-white, #fff);
+      border-left: 1px solid var(--tns-color-grey-1, #ccc);
       box-shadow: -2px 0 6px rgba(0, 0, 0, 0.08);
       font-family: Inter, sans-serif;
       transition: width 0.12s ease;
+      z-index: 10002;
+      pointer-events: auto;
     }
+
     body.tcr-active #${SIDEBAR_ID} {
       display: flex;
     }
+
+    #${SIDEBAR_ID}:hover {
+      z-index: 10005;
+    }
+
     body.tcr-collapsed #${SIDEBAR_ID} {
       width: ${COLLAPSED_WIDTH}px;
     }
@@ -71,33 +92,36 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-shrink: 0;
       padding: 6px 10px;
       background: #2a354b;
       color: #fff;
       border-bottom: 1px solid var(--tns-color-grey-1, #ccc);
-      font-weight: 600;
       font-size: 12px;
+      font-weight: 600;
       user-select: none;
-      flex-shrink: 0;
     }
+
     body.tcr-collapsed #${SIDEBAR_ID} .tcr-header {
-      padding: 6px 2px;
       justify-content: center;
+      padding: 6px 2px;
     }
+
     body.tcr-collapsed #${SIDEBAR_ID} .tcr-title {
       display: none;
     }
 
     #${TOGGLE_BTN_ID} {
+      padding: 1px 7px;
       background: var(--tns-color-white, #fff);
+      color: inherit;
       border: 1px solid var(--tns-color-grey-1, #ccc);
       border-radius: 3px;
       cursor: pointer;
-      padding: 1px 7px;
       font-size: 14px;
       line-height: 1;
-      color: inherit;
     }
+
     #${TOGGLE_BTN_ID}:hover {
       background: var(--tns-color-grey-1, #ddd);
     }
@@ -107,85 +131,140 @@
       overflow-y: auto;
       padding: 8px;
     }
+
     body.tcr-collapsed #${SIDEBAR_ID} .tcr-content {
       display: none;
     }
 
     #${EMPTY_MSG_ID} {
-      color: var(--tns-color-grey-1, #888);
-      font-style: italic;
-      font-size: 12px;
       padding: 14px 8px;
+      color: var(--tns-color-grey-1, #888);
+      font-size: 12px;
+      font-style: italic;
       text-align: center;
     }
 
+    /* Resize */
     #${RESIZER_ID} {
       position: absolute;
-      left: -2px;
       top: 0;
       bottom: 0;
+      left: -2px;
       width: 6px;
-      cursor: ew-resize;
       background: transparent;
+      cursor: ew-resize;
       z-index: 1;
     }
+
     #${RESIZER_ID}:hover,
     #${RESIZER_ID}.tcr-resizing {
       background: var(--tns-color-blue-1, #4a90e2);
       opacity: 0.6;
     }
+
     body.tcr-collapsed #${RESIZER_ID} {
       display: none;
     }
 
-    /* Bei aktiver Seitenleiste das Resizing waehrend des Drags entkoppeln */
     body.tcr-resizing,
     body.tcr-resizing * {
       cursor: ew-resize !important;
       user-select: none !important;
     }
+
     body.tcr-resizing #${SIDEBAR_ID},
     body.tcr-resizing #v4_overallContainer {
       transition: none !important;
+    }
+
+    /* Backdrop */
+    #${BACKDROP_ID} {
+      position: fixed;
+      inset: 0;
+      display: none;
+      background-color: color-mix(
+        in srgb,
+        var(--tns-color-black) 10%,
+        transparent
+      ) !important;
+      z-index: 10001;
+      pointer-events: auto;
+    }
+
+    #${BACKDROP_ID}.tcr-visible {
+      display: block;
+    }
+
+    /* Popup: nur die bekannten Checklisten-Quick-Edit-Popups anheben. */
+    /* .lt-hover-container/.lt-container sind generische TANSS-Klassen, die */
+    /* auch fuer fachfremde Hover-Tooltips verwendet werden (z.B. den Chat- */
+    /* Ungelesen-Hinweis) - daher hier bewusst nicht pauschal, sondern ueber */
+    /* die konkreten POPUP_SELECTORS angesprochen. */
+    ${POPUP_SELECTORS.join(",\n    ")} {
+      z-index: 10003 !important;
+      pointer-events: none !important;
+    }
+
+    ${POPUP_SELECTORS.map((s) => `${s} > .lt-container`).join(",\n    ")} {
+      pointer-events: auto !important;
+    }
+
+    .tns-date-picker-popup {
+      z-index: 10004 !important;
+      pointer-events: auto !important;
     }
   `);
 
   let sidebar = null;
   let content = null;
   let emptyMsg = null;
+  let backdrop = null;
+
   let lastUrl = "";
   let userToggledThisTicket = false;
-  let lastChecklistPresence = null;
+  let lastChecklistState = "";
 
   function isTicketView() {
-    const p = new URLSearchParams(location.search);
-    return p.get("section") === "bug" && p.get("sub") === "view" && p.has("bugID");
+    const params = new URLSearchParams(location.search);
+
+    return (
+      params.get("section") === "bug" &&
+      params.get("sub") === "view" &&
+      params.has("bugID")
+    );
   }
 
   function applyStoredWidth() {
     const stored = parseInt(localStorage.getItem(LS_WIDTH), 10);
-    const w = stored >= MIN_WIDTH && stored <= MAX_WIDTH ? stored : DEFAULT_WIDTH;
-    document.body.style.setProperty("--tcr-width", w + "px");
+
+    const width =
+      stored >= MIN_WIDTH && stored <= MAX_WIDTH
+        ? stored
+        : DEFAULT_WIDTH;
+
+    document.body.style.setProperty("--tcr-width", width + "px");
   }
 
   function updateToggleIcon() {
-    const btn = document.getElementById(TOGGLE_BTN_ID);
-    if (!btn) return;
-    const collapsed = document.body.classList.contains("tcr-collapsed");
-    btn.textContent = collapsed ? "‹" : "›";
-    btn.title = collapsed ? "Checklisten einblenden" : "Checklisten ausblenden";
+    const button = document.getElementById(TOGGLE_BTN_ID);
+
+    if (!button) {
+      return;
+    }
+
+    const collapsed =
+      document.body.classList.contains("tcr-collapsed");
+
+    button.textContent = collapsed ? "‹" : "›";
+    button.title = collapsed
+      ? "Checklisten einblenden"
+      : "Checklisten ausblenden";
   }
 
   function toggleCollapsed() {
     userToggledThisTicket = true;
-    const next = !document.body.classList.contains("tcr-collapsed");
-    document.body.classList.toggle("tcr-collapsed", next);
-    updateToggleIcon();
-  }
 
-  function applyAutoCollapsed(hasChecklists) {
-    if (userToggledThisTicket) return;
-    document.body.classList.toggle("tcr-collapsed", !hasChecklists);
+    document.body.classList.toggle("tcr-collapsed");
     updateToggleIcon();
   }
 
@@ -193,37 +272,82 @@
     let startX = 0;
     let startWidth = 0;
 
-    function onMove(e) {
-      const delta = startX - e.clientX;
-      let next = startWidth + delta;
-      if (next < MIN_WIDTH) next = MIN_WIDTH;
-      if (next > MAX_WIDTH) next = MAX_WIDTH;
-      document.body.style.setProperty("--tcr-width", next + "px");
+    function onMove(event) {
+      const delta = startX - event.clientX;
+
+      const nextWidth = Math.min(
+        MAX_WIDTH,
+        Math.max(MIN_WIDTH, startWidth + delta)
+      );
+
+      document.body.style.setProperty(
+        "--tcr-width",
+        nextWidth + "px"
+      );
     }
+
     function onUp() {
       handle.classList.remove("tcr-resizing");
       document.body.classList.remove("tcr-resizing");
+
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
-      const cs = getComputedStyle(document.body).getPropertyValue("--tcr-width");
-      const w = parseInt(cs, 10);
-      if (w) localStorage.setItem(LS_WIDTH, String(w));
+
+      const currentWidth = getComputedStyle(document.body)
+        .getPropertyValue("--tcr-width");
+
+      const parsedWidth = parseInt(currentWidth, 10);
+
+      if (parsedWidth) {
+        localStorage.setItem(LS_WIDTH, String(parsedWidth));
+      }
     }
-    handle.addEventListener("mousedown", function (e) {
-      if (document.body.classList.contains("tcr-collapsed")) return;
-      e.preventDefault();
+
+    handle.addEventListener("mousedown", function (event) {
+      if (document.body.classList.contains("tcr-collapsed")) {
+        return;
+      }
+
+      event.preventDefault();
+
       handle.classList.add("tcr-resizing");
       document.body.classList.add("tcr-resizing");
-      startX = e.clientX;
-      const cs = getComputedStyle(document.body).getPropertyValue("--tcr-width");
-      startWidth = parseInt(cs, 10) || DEFAULT_WIDTH;
+
+      startX = event.clientX;
+
+      const currentWidth = getComputedStyle(document.body)
+        .getPropertyValue("--tcr-width");
+
+      startWidth =
+        parseInt(currentWidth, 10) || DEFAULT_WIDTH;
+
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     });
   }
 
+  function buildBackdrop() {
+    backdrop = document.getElementById(BACKDROP_ID);
+
+    if (backdrop) {
+      return;
+    }
+
+    backdrop = document.createElement("div");
+    backdrop.id = BACKDROP_ID;
+    backdrop.setAttribute("aria-hidden", "true");
+
+    document.body.appendChild(backdrop);
+  }
+
   function buildSidebar() {
-    if (sidebar) return;
+    sidebar = document.getElementById(SIDEBAR_ID);
+
+    if (sidebar) {
+      content = sidebar.querySelector(".tcr-content");
+      emptyMsg = document.getElementById(EMPTY_MSG_ID);
+      return;
+    }
 
     sidebar = document.createElement("div");
     sidebar.id = SIDEBAR_ID;
@@ -238,20 +362,22 @@
     title.className = "tcr-title";
     title.textContent = "Checklisten";
 
-    const toggleBtn = document.createElement("button");
-    toggleBtn.id = TOGGLE_BTN_ID;
-    toggleBtn.type = "button";
-    toggleBtn.addEventListener("click", toggleCollapsed);
+    const toggleButton = document.createElement("button");
+    toggleButton.id = TOGGLE_BTN_ID;
+    toggleButton.type = "button";
+    toggleButton.addEventListener("click", toggleCollapsed);
 
     header.appendChild(title);
-    header.appendChild(toggleBtn);
+    header.appendChild(toggleButton);
 
     content = document.createElement("div");
     content.className = "tcr-content";
 
     emptyMsg = document.createElement("div");
     emptyMsg.id = EMPTY_MSG_ID;
-    emptyMsg.textContent = "Keine Checkliste in diesem Ticket.";
+    emptyMsg.textContent =
+      "Keine Checkliste in diesem Ticket.";
+
     content.appendChild(emptyMsg);
 
     sidebar.appendChild(resizer);
@@ -265,61 +391,173 @@
     updateToggleIcon();
   }
 
-  function updateEmptyMsg() {
-    if (!content || !emptyMsg) return;
-    const hasChecklists = content.querySelector(CHECKLIST_SELECTOR) !== null;
-    emptyMsg.style.display = hasChecklists ? "none" : "";
+  function isElementVisible(element) {
+    if (!element || !element.isConnected) {
+      return false;
+    }
+
+    const style = getComputedStyle(element);
+
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      style.opacity === "0"
+    ) {
+      return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function isWantedPopupOpen() {
+    return POPUP_SELECTORS.some((selector) => {
+      return Array.from(
+        document.querySelectorAll(selector)
+      ).some(isElementVisible);
+    });
+  }
+
+  function updateBackdrop() {
+    buildBackdrop();
+
+    backdrop.classList.toggle(
+      "tcr-visible",
+      isWantedPopupOpen()
+    );
+  }
+
+  function updateChecklistState() {
+    if (!content || !emptyMsg) {
+      return;
+    }
+
+    const allChecklists =
+      content.querySelectorAll(CHECKLIST_SELECTOR);
+
+    const openChecklists =
+      content.querySelectorAll(OPEN_CHECKLIST_SELECTOR);
+
+    const state =
+      allChecklists.length === 0
+        ? "empty"
+        : openChecklists.length > 0
+          ? "open"
+          : "completed";
+
+    emptyMsg.style.display =
+      state === "empty" ? "" : "none";
+
+    if (state === lastChecklistState) {
+      return;
+    }
+
+    lastChecklistState = state;
+
+    if (state === "empty") {
+      if (!userToggledThisTicket) {
+        document.body.classList.add("tcr-collapsed");
+      }
+    } else if (state === "open") {
+      document.body.classList.remove("tcr-collapsed");
+      userToggledThisTicket = false;
+    } else if (
+      state === "completed" &&
+      !userToggledThisTicket
+    ) {
+      document.body.classList.add("tcr-collapsed");
+    }
+
+    updateToggleIcon();
   }
 
   function moveChecklists() {
-    if (!content) return;
-    document.querySelectorAll(CHECKLIST_SELECTOR).forEach((cl) => {
-      if (sidebar.contains(cl)) return;
-      content.appendChild(cl);
-    });
-    updateEmptyMsg();
+    if (!content || !sidebar) {
+      return;
+    }
+
+    document
+      .querySelectorAll(CHECKLIST_SELECTOR)
+      .forEach((checklist) => {
+        if (!sidebar.contains(checklist)) {
+          content.appendChild(checklist);
+        }
+      });
+
+    updateChecklistState();
   }
 
   function clearSidebar() {
-    if (!content) return;
-    content.querySelectorAll(CHECKLIST_SELECTOR).forEach((el) => el.remove());
-    updateEmptyMsg();
+    if (!content) {
+      return;
+    }
+
+    content
+      .querySelectorAll(CHECKLIST_SELECTOR)
+      .forEach((element) => element.remove());
+
+    lastChecklistState = "";
+    updateChecklistState();
   }
 
   function update() {
+    buildBackdrop();
+
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       clearSidebar();
       userToggledThisTicket = false;
-      lastChecklistPresence = null;
+      lastChecklistState = "";
     }
+
     if (isTicketView()) {
-      const hasChecklists = document.querySelector(CHECKLIST_SELECTOR) !== null;
-      if (hasChecklists !== lastChecklistPresence) {
-        lastChecklistPresence = hasChecklists;
-        applyAutoCollapsed(hasChecklists);
-      }
       buildSidebar();
       document.body.classList.add("tcr-active");
       moveChecklists();
     } else {
-      document.body.classList.remove("tcr-active");
+      document.body.classList.remove(
+        "tcr-active",
+        "tcr-collapsed"
+      );
     }
+
+    updateBackdrop();
   }
 
   let scheduled = false;
+
   function scheduleUpdate() {
-    if (scheduled) return;
+    if (scheduled) {
+      return;
+    }
+
     scheduled = true;
+
     requestAnimationFrame(() => {
       scheduled = false;
       update();
     });
   }
 
-  new MutationObserver(scheduleUpdate).observe(document.body, {
+  const observer = new MutationObserver((mutations) => {
+    // Eigene Schreibzugriffe (Resize-Drag setzt bei jedem mousemove
+    // --tcr-width auf body, Collapse-Toggle togglet body-Klassen, das
+    // Backdrop togglet seine eigene Klasse) sollen sich nicht selbst
+    // erneut ein update() ausloesen.
+    const relevant = mutations.some(
+      (m) =>
+        m.type !== "attributes" ||
+        (m.target !== document.body && m.target !== backdrop)
+    );
+    if (relevant) scheduleUpdate();
+  });
+
+  observer.observe(document.body, {
     childList: true,
     subtree: true,
+    attributes: true,
+    attributeFilter: ["class", "style", "hidden"]
   });
 
   update();
