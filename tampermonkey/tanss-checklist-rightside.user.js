@@ -7,7 +7,7 @@
 // ==UserScript==
 // @name         tanss-checklist-rightside
 // @namespace    https://github.com/compositiv/tanss-tools
-// @version      2026-05-13.12-00
+// @version      2026-09-11.12-00
 // @updateURL    https://raw.githubusercontent.com/compositiv/tanss-tools/main/tampermonkey/tanss-checklist-rightside.user.js
 // @downloadURL  https://raw.githubusercontent.com/compositiv/tanss-tools/main/tampermonkey/tanss-checklist-rightside.user.js
 // @homepageURL  https://github.com/compositiv/tanss-tools
@@ -195,13 +195,17 @@
       display: block;
     }
 
-    /* Popup */
-    .lt-hover-container {
+    /* Popup: nur die bekannten Checklisten-Quick-Edit-Popups anheben. */
+    /* .lt-hover-container/.lt-container sind generische TANSS-Klassen, die */
+    /* auch fuer fachfremde Hover-Tooltips verwendet werden (z.B. den Chat- */
+    /* Ungelesen-Hinweis) - daher hier bewusst nicht pauschal, sondern ueber */
+    /* die konkreten POPUP_SELECTORS angesprochen. */
+    ${POPUP_SELECTORS.join(",\n    ")} {
       z-index: 10003 !important;
       pointer-events: none !important;
     }
 
-    .lt-hover-container > .lt-container {
+    ${POPUP_SELECTORS.map((s) => `${s} > .lt-container`).join(",\n    ")} {
       pointer-events: auto !important;
     }
 
@@ -536,7 +540,18 @@
     });
   }
 
-  const observer = new MutationObserver(scheduleUpdate);
+  const observer = new MutationObserver((mutations) => {
+    // Eigene Schreibzugriffe (Resize-Drag setzt bei jedem mousemove
+    // --tcr-width auf body, Collapse-Toggle togglet body-Klassen, das
+    // Backdrop togglet seine eigene Klasse) sollen sich nicht selbst
+    // erneut ein update() ausloesen.
+    const relevant = mutations.some(
+      (m) =>
+        m.type !== "attributes" ||
+        (m.target !== document.body && m.target !== backdrop)
+    );
+    if (relevant) scheduleUpdate();
+  });
 
   observer.observe(document.body, {
     childList: true,
